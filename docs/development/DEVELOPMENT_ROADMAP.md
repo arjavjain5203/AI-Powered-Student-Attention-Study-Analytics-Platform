@@ -2,21 +2,21 @@
 
 ## Product and current state
 
-The platform is a privacy-first study companion. It records study sessions and optional derived behavioral signals. It cannot measure a student's mental state. The React presentation UI is owner-completed and builds successfully. Phase 3 is ACTIVE: a browser-local visual-signal prototype and owned API are implemented; real-camera evaluation remains open. Phase 2 browser acceptance checks also remain open.
+The platform is a privacy-first study companion. It records owned study sessions and browser-local derived visual signals. Timed sessions now require an explicit camera start; no video is uploaded by default. It cannot measure a student's mental state. Phase 1 and the local Phase 2 foundation pass automated browser and database checks. Phase 3 is ACTIVE: camera-gated timing, provisional event pause, explicit false-alarm feedback, and owned APIs are implemented; physical-camera and labeled-signal validation remain open.
 
 ## Phase sequence and dependency
 
 | Phase | Status | Depends on | Major deliverable and exit gate |
 | --- | --- | --- | --- |
-| [1 UI](PHASE_01_UI.md) | Owner-completed; browser QA pending | None | Navigable demo, responsive UI, honest mock labels, successful build |
-| [2 Backend](PHASE_02_BACKEND.md) | Implemented, browser QA pending | Phase 1 contracts | Authenticated owned sessions, records, analytics, API integration, test Mongo verification |
+| [1 UI](PHASE_01_UI.md) | Completed; headless browser QA passed | None | Navigable demo, responsive UI, honest mock labels, successful build |
+| [2 Backend](PHASE_02_BACKEND.md) | Local implementation and browser QA passed | Phase 1 contracts | Authenticated owned sessions, records, analytics, API integration, test Mongo verification |
 | [3 CV](PHASE_03_COMPUTER_VISION.md) | ACTIVE, device evaluation pending | Phase 2 records and consent model | Opt-in local processing and derived visual signals; validation before attention claims |
 | [4 Intelligence](PHASE_04_AI_PERSONALIZATION.md) | Upcoming | Sufficient valid Phase 2/3 data | Calibrated baseline, explainable plans, coach, gamification |
 | [5 Integration](PHASE_05_INTEGRATION_DEPLOYMENT.md) | Upcoming | Phases 2–4 | End-to-end, security/privacy checks, deployment |
 
 ## Current progress and next tasks
 
-Phase 2 implemented FastAPI, MongoDB, JWT accounts, owned sessions, digital records, analytics, and recorded frontend views. Phase 3 now has an opt-in browser camera prototype, separate derived visual records, consent endpoints, and a provisional visual-signal index. Validated visual attention and focused-time estimates are still unavailable. Next: run real-camera, responsive, performance, and privacy-network QA; close the pending Phase 2 browser checks.
+Phase 2 implemented FastAPI, MongoDB, JWT accounts, owned sessions, digital records, analytics, and backend-connected frontend views. The app opens at sign-in; the separate Demo and Recorded workspaces were removed. Three fictional local accounts have labeled sample history, while the existing test account keeps its recorded history. The updated headless browser test covers camera-gated timing, provisional alert pause, explicitly shared false-alarm clips, API errors, and responsive layouts. The camera uses a consent lease and a provisional visual-signal index. Validated visual attention and focused-time estimates remain unavailable. Next: run the [physical-device and labeled-observation protocol](PHASE_03_VALIDATION.md) and review whether the visual heuristics should be kept, adjusted, or disabled.
 
 ## Cross-phase acceptance and testing
 

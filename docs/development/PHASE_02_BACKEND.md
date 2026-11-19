@@ -2,7 +2,7 @@
 
 ## Objective and status
 
-ACTIVE, implementation complete with browser acceptance pending. The local MongoDB integration test and isolated suite pass. Do not create visual scores, AI responses, or production XP from demo fixtures.
+Local foundation and browser acceptance checks pass. Production security/deployment review remains Phase 5. The local MongoDB integration test and isolated suite pass. Do not create validated visual scores, AI responses, or production XP from demo fixtures.
 
 ## Scope and features
 
@@ -14,7 +14,7 @@ FastAPI under `backend/app`, MongoDB collections (`users`, `sessions`, `attentio
 2. Run indexes and authentication against a real test MongoDB; verify duplicate email handling and connection errors.
 3. Add source, consent, and quality metadata before accepting future visual signals. Until then `visual_attention_score` stays `null`.
 4. Extend analytics with timezone-aware calendar boundaries, focused time when validated visual records exist, baseline eligibility, and distraction categories. Return `null` where unavailable.
-5. Add a frontend data adapter and login/register flow. Preserve explicit demo mode; wire session, profile, analytics, and focus-plan views to live APIs with loading, empty, and error states.
+5. Add a frontend data adapter and login/register flow. Dashboard, Study Session, Analytics, and Settings now open in the backend-connected workspace. The original Phase 1 sample pages for Coach, Goals, and Achievements remain labeled previews. Handle loading, empty, and error states.
 6. Add integration tests for each endpoint, race conditions, ownership, expired tokens, invalid input, and a real MongoDB instance.
 
 ## Dependencies and API
@@ -27,7 +27,7 @@ Users have a unique email index. Sessions and records index `user_id` and time/s
 
 ## Testing, acceptance, and risks
 
-Current results: 7 isolated tests passed with `mongomock`; the opt-in real MongoDB test passed against local MongoDB Community 8.0.34. The frontend build passes. `npm audit --omit=dev` found no runtime dependency advisories; the full audit reports four high advisories in the Vite development dependency chain, and its suggested forced fix would downgrade Vite. Exit still requires browser interaction, responsive, and error-state QA; the Browser access host was unavailable during this run. Risks: client-reported signals can be forged; heuristic weights are not validated; session time depends on server clock; JWTs are held only in memory and expire after 12 hours. See [data and trust contract](PHASE_02_DATA_CONTRACT.md).
+Current results: the isolated backend suite, opt-in real MongoDB test, frontend tests, and Vite build pass. `npm run test:browser` uses headless Chrome, a temporary MongoDB database, and isolated local servers to check authentication, recorded sessions, 375/768/1440-pixel layouts, 409/503/401 UI errors, and reload behavior. `npm audit --omit=dev` found no runtime dependency advisories; the full audit previously reported development-chain advisories. Risks: client-reported signals can be forged; heuristic weights are not validated; session time depends on server clock; JWTs are held only in memory and expire after 12 hours. See [data and trust contract](PHASE_02_DATA_CONTRACT.md).
 
 ## Checklist
 
@@ -35,10 +35,10 @@ Current results: 7 isolated tests passed with `mongomock`; the opt-in real Mongo
 - [x] Digital engagement separated from visual attention; focus-plan fallback and reasons.
 - [x] Isolated service and API tests.
 - [x] Real MongoDB test and connection/error handling.
-- [x] Frontend auth and recorded-data mode for Dashboard, Study Session, Analytics, and Settings.
+- [x] Frontend auth and recorded-first Dashboard, Study Session, Analytics, and Settings.
 - [x] Calendar/timezone aggregation and explicit unavailable focused-time contract.
 - [x] Expanded failure-path, ownership, and token tests; local configuration review.
-- [ ] Browser interaction, responsive, and error-state QA.
+- [x] Local headless Chrome interaction, responsive, and error-state QA.
 
 Depends on Phase 1 UI contracts. Phase 3 can begin only after consent and derived-signal contracts are documented.
 

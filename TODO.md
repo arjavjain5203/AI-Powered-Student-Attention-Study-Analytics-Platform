@@ -5,9 +5,9 @@
 
 | Phase | Description | Status |
 |---|---|---|
-| Phase 1 | Complete UI Development | Implementation completed; visual QA pending |
-| Phase 2 | Backend and Data Layer | Implementation completed; browser QA pending |
-| Phase 3 | Browser-local Computer Vision | ACTIVE — initial implementation completed; validation pending |
+| Phase 1 | Complete UI Development | Completed; headless Chrome QA passed |
+| Phase 2 | Backend and Data Layer | Local implementation and browser QA passed; deployment review remains Phase 5 |
+| Phase 3 | Browser-local Computer Vision | ACTIVE — implementation and synthetic-camera QA passed; physical-device and labeled validation pending |
 | Phase 4 | ML, Personalization, GenAI & Gamification | Upcoming |
 | Phase 5 | Integration, Testing & Deployment | Upcoming |
 
@@ -15,7 +15,7 @@
 
 ## Phase 1 — Complete UI Development and Presentation
 
-**Status: OWNER-COMPLETED; production build verified. Browser and responsive visual QA remain open.**
+**Status: OWNER-COMPLETED; build and headless Chrome visual QA verified.**
 
 See [Phase 1](docs/development/PHASE_01_UI.md).
 
@@ -36,10 +36,10 @@ See [Phase 1](docs/development/PHASE_01_UI.md).
 - [x] Verify the production build succeeds with Vite.
 - [x] Prepare a presentation/demo flow requiring no backend or webcam.
 - [x] Clearly distinguish simulated data and simulated AI/CV features from real functionality.
-- [ ] Perform browser interaction testing across all screens.
-- [ ] Verify responsive visual layout at mobile, tablet, and desktop widths.
-- [ ] Check browser console errors and failed network requests.
-- [ ] Verify keyboard navigation, focus states, and accessibility basics.
+- [x] Perform browser interaction testing across all screens in headless Chrome.
+- [x] Inspect screenshots and verify no horizontal overflow at 375, 768, and 1440 pixels.
+- [x] Check browser console errors and failed network requests; intentional API-error cases are asserted.
+- [x] Verify keyboard navigation, visible focus, labeled forms, and basic accessibility in the browser smoke test.
 
 **Phase 1 Exit Criteria:**
 
@@ -49,7 +49,7 @@ The complete UI must be navigable, visually consistent, responsive, and demonstr
 
 ## Phase 2 — Backend and Data Layer
 
-**Status: IMPLEMENTATION COMPLETED; browser QA and integration verification pending.**
+**Status: LOCAL IMPLEMENTATION AND BROWSER QA COMPLETED; production deployment review remains Phase 5.**
 
 See:
 - [Phase 2 Implementation Guide](docs/development/PHASE_02_BACKEND.md)
@@ -105,13 +105,15 @@ See:
 ### Frontend Integration
 
 - [x] Add shared API client.
-- [x] Add recorded-data mode.
-- [x] Add mode switching between demo and recorded-data views.
+- [x] Open directly in the backend-connected workspace; remove the Demo/Recorded switch and separate Recorded workspace navigation item.
 - [x] Connect Dashboard to recorded data.
 - [x] Connect Study Session to recorded data.
+- [x] Show a live server-backed session timer without refresh; exclude setup, paused, and ended intervals.
+- [x] Gate new session timing on camera startup and pause on camera stop, lost permission, route exit, lease expiry, or provisional alert.
 - [x] Connect Analytics to recorded data.
 - [x] Connect Profile and Settings to recorded data.
-- [x] Preserve existing demonstration screens.
+- [x] Keep AI Coach, Goals, and Achievements visibly labeled as previews until real features are implemented.
+- [x] Seed three isolated fictional presentation accounts and preserve the local test account's session history.
 
 ### Testing and Database Verification
 
@@ -128,12 +130,12 @@ See:
 
 ### Remaining QA
 
-- [ ] Browser-test recorded-data mode.
-- [ ] Verify frontend behavior when backend is unavailable.
-- [ ] Test expired and invalid JWT handling in the UI.
-- [ ] Test API validation and database errors.
-- [ ] Verify session state remains consistent after page refresh.
-- [ ] Verify desktop, tablet, and mobile layouts in recorded-data mode.
+- [x] Browser-test recorded-data mode with an isolated local MongoDB database.
+- [x] Verify frontend behavior for a simulated backend 503 and recovery.
+- [x] Test expired and invalid JWT handling in the UI with a simulated 401.
+- [x] Test API validation and database errors, including a second-session 409 and simulated 503.
+- [x] Verify ended session state persists after page refresh and sign-in; camera remains off.
+- [x] Verify desktop, tablet, and mobile layouts in recorded-data mode at 1440, 768, and 375 pixels.
 - [ ] Review API authorization and environment configuration before production deployment.
 
 **Phase 2 Exit Criteria:**
@@ -144,7 +146,7 @@ The backend must reliably support authentication, session management, validated 
 
 ## Phase 3 — Browser-Local Computer Vision and Attention Signals
 
-**Status: ACTIVE — initial implementation completed; real-browser QA, performance testing, and signal validation pending.**
+**Status: ACTIVE — implementation and synthetic-camera browser QA pass; physical-camera performance and signal validation pending.**
 
 See [Phase 3 Computer Vision Guide](docs/development/PHASE_03_COMPUTER_VISION.md).
 
@@ -154,15 +156,17 @@ See [Phase 3 Computer Vision Guide](docs/development/PHASE_03_COMPUTER_VISION.md
 - [x] Add local webcam preview.
 - [x] Add camera start and stop controls.
 - [x] Integrate webcam controls with active recorded study sessions.
-- [ ] Test camera permission granted.
-- [ ] Test camera permission denied.
-- [ ] Test when no camera is available.
-- [ ] Test camera disconnection during a session.
-- [ ] Test camera device switching.
-- [ ] Verify camera stops when a session ends.
-- [ ] Verify camera stops when a session is paused, where required by the chosen UX.
-- [ ] Verify camera stops on route changes and component unmount.
-- [ ] Test webcam behavior after page refresh.
+- [x] Test camera permission granted with a synthetic Chrome camera.
+- [x] Test camera permission denied with a browser API rejection.
+- [x] Test a missing selected camera device in the browser.
+- [x] Test synthetic camera disconnection during a session.
+- [x] Add camera device selection and test unavailable-device handling.
+- [ ] Test switching between two physical cameras.
+- [x] Verify camera stops when a session ends.
+- [x] Verify camera stops when a session is paused.
+- [x] Verify camera stops on route changes and component unmount.
+- [x] Test that page refresh stops capture and requires sign-in again.
+- [ ] Repeat camera permission and lifecycle checks with a physical camera.
 
 ### B. Browser-Local MediaPipe Processing
 
@@ -171,10 +175,12 @@ See [Phase 3 Computer Vision Guide](docs/development/PHASE_03_COMPUTER_VISION.md
 - [x] Process webcam frames locally.
 - [x] Aggregate derived signals into 10-second windows.
 - [x] Keep raw frames and facial landmarks out of API payloads.
-- [ ] Test MediaPipe model initialization and loading failures.
-- [ ] Test supported browser compatibility.
+- [x] Test MediaPipe model initialization and a blocked-model loading failure in headless Chrome.
+- [x] Run the synthetic-camera browser suite in local Chrome and Edge.
+- [ ] Test supported browsers with physical cameras, including mobile Safari/Chrome.
 - [ ] Test low-light and poor-camera conditions.
-- [ ] Measure CPU usage and inference latency.
+- [x] Record a headless synthetic-camera task-duration and heap benchmark; show local inference milliseconds in the UI.
+- [ ] Measure CPU usage and inference latency on physical devices.
 - [ ] Evaluate performance on lower-end laptops and mobile devices.
 
 ### C. Visual Signal Processing
@@ -188,9 +194,10 @@ See [Phase 3 Computer Vision Guide](docs/development/PHASE_03_COMPUTER_VISION.md
 - [ ] Test eyewear-related variations.
 - [ ] Test variations in skin tones and camera quality.
 - [ ] Test different face positions and postures.
-- [ ] Determine feasible eye/gaze signals.
+- [x] Review eye/gaze feasibility and document why calibrated gaze is excluded from the current score.
 - [ ] Evaluate false-positive and false-negative rates.
-- [ ] Document signal limitations and reliability.
+- [x] Document signal limitations, sample coverage, and the validation protocol.
+- [x] Add a derived-count CSV evaluator for future consented observation results.
 
 ### D. Privacy and Backend Integration
 
@@ -199,35 +206,40 @@ See [Phase 3 Computer Vision Guide](docs/development/PHASE_03_COMPUTER_VISION.md
 - [x] Add 90-day expiry handling.
 - [x] Add visual-record deletion APIs.
 - [x] Add validation and corresponding tests.
-- [ ] Verify that no raw camera frames are transmitted.
-- [ ] Verify facial landmarks are not stored in MongoDB.
-- [ ] Inspect actual network requests during webcam processing.
-- [ ] Verify that sensitive camera data is not written to browser storage or application logs.
-- [ ] Verify consent is required before visual-record ingestion.
-- [ ] Verify one student cannot access another student's visual records.
-- [ ] Verify deletion and expiry behavior against real MongoDB.
+- [x] Assert the browser sends only five bounded count/version fields, with no raw frames.
+- [x] Verify real MongoDB visual records contain no frame, image, video, or landmark fields.
+- [x] Inspect synthetic-camera network requests and confirm model assets load from the app origin.
+- [x] Verify browser storage stays empty and app logs contain no camera payloads in the smoke test.
+- [x] Verify consent and its 60-second lease are required before visual-record ingestion.
+- [x] Verify another student cannot access visual records or events.
+- [x] Verify deletion and 90-day TTL indexes against real MongoDB; elapsed 90-day expiry remains unobserved.
+- [x] Add explicitly consented false-alarm clip upload, local admin review API, student deletion, and seven-day expiry.
+- [x] Require a recent camera alert and owner authentication before accepting a false-alarm report.
+- [ ] Review physical-camera clip preview, media compatibility, privacy notice, and admin access before deployment.
+- [ ] Repeat network and storage inspection with a physical camera.
 
 ### E. Distraction Detection
 
-- [ ] Define reliable potential-distraction event rules.
-- [ ] Detect prolonged absence of face.
+- [x] Define **provisional camera-observed event** rules, explicitly separate from validated distractions.
+- [x] Detect face not visible over two usable windows as a provisional event.
 - [ ] Evaluate looking-away events.
 - [ ] Evaluate prolonged downward head orientation.
-- [ ] Define minimum event durations and cooldown periods.
-- [ ] Prevent repeated duplicate distraction events.
-- [ ] Evaluate optional YOLO-based phone detection.
+- [x] Require two windows within 30 seconds and a 60-second category cooldown.
+- [x] Test suppression of repeated provisional visual events.
+- [x] Pause the study timer on a provisional camera alert and show a false-alarm path; keep paused time excluded.
+- [x] Complete an architecture/license desk review for optional YOLO phone detection; exclude it from the current runtime.
 - [ ] Test false phone-detection events before enabling the feature.
 
 ### F. Attention Engine Validation
 
-- [ ] Finalize separate visual and digital signal contracts.
-- [ ] Define missing-signal handling.
-- [ ] Define signal confidence and reliability indicators.
+- [x] Finalize separate provisional visual, digital, and validated-attention contracts.
+- [x] Define missing-signal handling and keep validated scores `null`.
+- [x] Expose sample coverage and usable/insufficient quality, without calling them calibrated confidence.
 - [ ] Evaluate the provisional visual-signal index against labeled observations.
 - [ ] Determine whether a validated estimated-attention score can be produced.
 - [ ] Define focused-time calculation only after its underlying signal rules are validated.
-- [ ] Document the scoring formula and limitations.
-- [ ] Ensure that unvalidated signals are never presented as scientifically established attention measurements.
+- [x] Document the scoring formula, event thresholds, and limitations.
+- [x] Ensure that unvalidated signals are not presented as scientifically established attention measurements.
 
 **Important distinction:**
 
@@ -392,13 +404,13 @@ All major features must work together, testing must pass, privacy and security r
 
 Complete these tasks in order:
 
-1. [ ] Perform browser QA for Phase 1 UI and Phase 2 recorded-data integration.
-2. [ ] Test webcam permission, denial, device disconnection, pause/end, and route-change behavior.
-3. [ ] Verify network privacy: no raw webcam frames or facial landmarks are transmitted.
-4. [ ] Measure browser-local MediaPipe performance.
-5. [ ] Validate provisional visual signals using consented observations.
-6. [ ] Update Phase 3 documentation with test results and known limitations.
-7. [ ] Only then finalize the attention and focused-time metric design.
+1. [x] Run isolated browser QA for Phase 1 UI, Phase 2 recorded data, and synthetic Phase 3 camera flow.
+2. [x] Assert synthetic-camera privacy payload, cleanup behavior, and local MongoDB deletion/indexes.
+3. [ ] Repeat permission, device switch, disconnect, pause/end, route, and network checks with a physical camera.
+4. [ ] Benchmark browser-local inference and CPU/battery impact on a laptop and mobile device.
+5. [ ] Validate provisional visual signals using consented observations and the [Phase 3 protocol](docs/development/PHASE_03_VALIDATION.md).
+6. [ ] Review false visual events, eye/gaze feasibility, and optional phone detection based on evidence.
+7. [ ] Only then decide whether visual attention and focused-time metrics can be published.
 
 ## Scope and Development Rules
 

@@ -6,6 +6,8 @@
 
 **Product concept:** A privacy-first AI study companion that helps students understand how they use study time, estimates attention from observable signals, tracks distraction patterns, identifies personal study habits, and provides actionable recommendations.
 
+**Current implementation update (2026-11-18):** The Phase 1 presentation requirements below describe the original UI milestone. The app now opens in a backend-connected workspace. Timed sessions require the student to explicitly start camera monitoring; camera alerts provisionally pause elapsed session time and can be reported as false alarms. Only a clip explicitly shared after a false alarm is stored, for seven days. This product choice does not validate visual attention or focused time.
+
 ## Problem
 
 Traditional study timers measure elapsed time but cannot explain how much of a session appeared focused, when attention signals changed, or which habits recur. Students need more useful feedback than a total-duration number.

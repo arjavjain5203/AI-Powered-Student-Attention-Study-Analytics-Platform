@@ -11,7 +11,9 @@
 | `estimated_focused_seconds` | Future duration inferred from eligible visual records | Yes; always `null` in Phase 2 | Phase 3/4 rules |
 | `potential_distraction_count` | Count of client-reported event records | No | Owned session event API |
 
-The API does not accept raw webcam frames or a client-supplied visual score. Digital counts may be inaccurate or forged; neither they nor an elapsed timer prove learning. The focus planner labels its score source and provisional heuristic status. It falls back to an explicitly unpersonalized suggestion when fewer than three valid scores are available.
+The visual-record API accepts derived counts, never raw frames or a client-supplied visual score. A separate false-alarm endpoint accepts a short clip only after an explicit student action and sharing agreement. Digital counts may be inaccurate or forged; neither they nor an elapsed timer prove learning. The focus planner labels its score source and provisional heuristic status. It falls back to an explicitly unpersonalized suggestion when fewer than three valid scores are available.
+
+The Study Session screen displays `active_seconds` as a running clock. A camera-required session begins in `awaiting_camera` with zero active time. After camera setup and consent, activation starts server time. The clock advances each second while `active`, stops while `paused` or `ended`, and resynchronizes from the server. Camera stop, loss, route exit, and consent-lease expiry pause a camera-required session. A provisional camera event also pauses it at alert time and presents a false-alarm choice. The student must restart monitoring to resume; paused time is not added back even for a false alarm. This interval cannot determine whether the student was actually studying, and it does not retroactively subtract an unknown earlier distraction period. `estimated_focused_seconds` remains `null` pending validated rules.
 
 ## Time and ownership
 
@@ -19,7 +21,7 @@ All stored timestamps are UTC and durations are seconds. Profile `time_zone` is 
 
 ## Future visual-signal gate
 
-Phase 3 adds opt-in and revoke UX, consent timestamps, a versioned bounded count payload, server-side provisional index calculation, quality/missing markers, 90-day expiry, per-session deletion, and cross-user tests. The separate `visual_records` collection is not merged into `attention_records`; `visual_attention_score` and analytics averages remain `null` pending a consented validation study. Clients cannot submit arbitrary score fields, but client-supplied counts remain forgeable.
+Phase 3 has consent timestamps and a 60-second renewable lease, a versioned bounded count payload, server-side provisional index calculation, sample coverage/quality markers, 90-day expiry, per-session deletion, and cross-user tests. The separate `visual_records` and `visual_events` collections are not merged into `attention_records` or existing distraction analytics; `visual_attention_score` and analytics averages remain `null` pending a consented validation study. Clients cannot submit arbitrary score fields, but client-supplied counts remain forgeable. Camera-observed events are provisional and can reflect normal study behavior. A false-alarm report requires a recent owned event; any student-shared WebM clip is limited to 5 MB, stored separately, and has seven-day TTL and owner deletion. The server checks file type and EBML header but does not independently verify clip duration or content.
 
 ## Authentication and deployment review
 

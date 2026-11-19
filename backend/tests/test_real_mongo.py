@@ -51,7 +51,12 @@ def test_real_mongo_api_roundtrip(monkeypatch):
             assert visual.status_code == 201, visual.text
             assert visual.json()["visual_signal_index"] == 72
             assert client[name].visual_records.index_information()["expires_at_1"]["expireAfterSeconds"] == 0
+            assert client[name].visual_events.index_information()["expires_at_1"]["expireAfterSeconds"] == 0
+            assert client[name].false_alarm_reports.index_information()["expires_at_1"]["expireAfterSeconds"] == 0
             assert client[name].visual_records.count_documents({"session_id": sid}) == 1
+            stored = client[name].visual_records.find_one({"session_id": sid})
+            assert stored["sample_coverage"] == 1.0
+            assert not set(stored).intersection({"frame", "image", "video", "landmarks", "raw_webcam"})
             assert http.delete(f"/api/sessions/{sid}/visual-records", headers=auth).json()["deleted_count"] == 1
             assert http.post(f"/api/sessions/{sid}/status/end", headers=auth).status_code == 200
             assert http.get("/api/analytics?period=daily", headers=auth).json()["session_count"] == 1

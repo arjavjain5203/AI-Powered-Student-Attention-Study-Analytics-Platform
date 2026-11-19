@@ -1,4 +1,5 @@
 import os
+import importlib
 import mongomock
 import pytest
 from datetime import datetime, timedelta, timezone
@@ -78,3 +79,95 @@ def test_database_failure_returns_503(client):
     response = client.post("/api/auth/login", json={"email":"one@example.com", "password":"password1234"})
     assert response.status_code == 503
     assert response.json() == {"detail":"Database unavailable"}
+
+
+def test_session_time_counts_only_active_intervals(client, monkeypatch):
+    headers = register(client, "timing@example.com")
+    main_module = importlib.import_module("app.main")
+    started_at = datetime.now(timezone.utc)
+    now = [started_at]
+    monkeypatch.setattr(main_module, "utcnow", lambda: now[0])
+
+    created = client.post("/api/sessions", headers=headers, json={"subject": "Reading"})
+    assert created.status_code == 201
+    sid = created.json()["id"]
+    now[0] = started_at + timedelta(seconds=12)
+    active = client.get(f"/api/sessions/{sid}", headers=headers).json()
+    assert active["active_seconds"] == 12
+    assert active["estimated_focused_seconds"] is None
+
+    paused = client.post(f"/api/sessions/{sid}/status/pause", headers=headers).json()
+    assert paused["active_seconds"] == 12
+    now[0] = started_at + timedelta(seconds=42)
+    assert client.get(f"/api/sessions/{sid}", headers=headers).json()["active_seconds"] == 12
+
+    client.post(f"/api/sessions/{sid}/status/resume", headers=headers)
+    now[0] = started_at + timedelta(seconds=50)
+    ended = client.post(f"/api/sessions/{sid}/status/end", headers=headers).json()
+    assert ended["active_seconds"] == 20
+    now[0] = started_at + timedelta(seconds=80)
+    assert client.get(f"/api/sessions/{sid}", headers=headers).json()["active_seconds"] == 20
+
+
+def test_camera_gated_session_and_expired_lease(client, monkeypatch):
+    headers = register(client, "camera-timer@example.com")
+    main_module = importlib.import_module("app.main")
+    started_at = datetime.now(timezone.utc)
+    now = [started_at]
+    monkeypatch.setattr(main_module, "utcnow", lambda: now[0])
+    created = client.post("/api/sessions", headers=headers,
+                          json={"subject": "Reading", "camera_required": True}).json()
+    sid = created["id"]
+    assert created["status"] == "awaiting_camera"
+    assert created["active_seconds"] == 0
+    assert client.post(f"/api/sessions/{sid}/activate", headers=headers).status_code == 409
+    assert client.post(f"/api/sessions/{sid}/visual-consent", headers=headers).status_code == 200
+    assert client.post(f"/api/sessions/{sid}/activate", headers=headers).json()["status"] == "active"
+    now[0] = started_at + timedelta(seconds=12)
+    assert client.get(f"/api/sessions/{sid}", headers=headers).json()["active_seconds"] == 12
+    assert client.delete(f"/api/sessions/{sid}/visual-consent", headers=headers).json()["active"] is False
+    assert client.get(f"/api/sessions/{sid}", headers=headers).json()["status"] == "paused"
+    now[0] = started_at + timedelta(seconds=42)
+    assert client.get(f"/api/sessions/{sid}", headers=headers).json()["active_seconds"] == 12
+    assert client.post(f"/api/sessions/{sid}/status/resume", headers=headers).status_code == 409
+    assert client.post(f"/api/sessions/{sid}/visual-consent", headers=headers).status_code == 200
+    assert client.post(f"/api/sessions/{sid}/status/resume", headers=headers).json()["status"] == "active"
+    now[0] = started_at + timedelta(seconds=112)
+    expired = client.get(f"/api/sessions/{sid}", headers=headers).json()
+    assert expired["status"] == "paused"
+    assert expired["active_seconds"] == 72  # 12 seconds + 60-second consent lease
+
+
+def test_false_alarm_clip_requires_consent_and_is_admin_only(client, monkeypatch):
+    a = register(client, "clip-owner@example.com")
+    b = register(client, "clip-other@example.com")
+    sid = client.post("/api/sessions", headers=a, json={"subject": "Algebra"}).json()["id"]
+    endpoint = f"/api/sessions/{sid}/false-alarms"
+    video = b"\x1a\x45\xdf\xa3" + b"sample-webm-data"
+    assert client.post(endpoint, headers=b, data={"category": "face_not_visible"}).status_code == 404
+    assert client.post(endpoint, headers=a, data={"category": "face_not_visible"}).status_code == 409
+    db = app.dependency_overrides[get_db]()
+    user_id = client.get("/api/profile", headers=a).json()["id"]
+    db.visual_events.insert_one({"user_id": user_id, "session_id": sid, "category": "face_not_visible",
+                                 "occurred_at": datetime.now(timezone.utc)})
+    assert client.post(endpoint, headers=a, data={"category": "face_not_visible"},
+                       files={"clip": ("clip.webm", video, "video/webm")}).status_code == 422
+    assert client.post(endpoint, headers=a, data={"category": "face_not_visible", "share_clip": "true"},
+                       files={"clip": ("clip.webm", b"not-webm", "video/webm")}).status_code == 422
+    report = client.post(endpoint, headers=a, data={"category": "face_not_visible", "share_clip": "true"},
+                         files={"clip": ("clip.webm", video, "video/webm")})
+    assert report.status_code == 201, report.text
+    rid = report.json()["id"]
+    monkeypatch.setenv("REVIEW_ADMIN_TOKEN", "a-long-local-review-token-for-unit-testing")
+    assert client.get("/api/admin/false-alarms").status_code == 401
+    admin = {"X-Review-Token": "a-long-local-review-token-for-unit-testing"}
+    assert client.get("/api/admin/false-alarms", headers=admin).json()[0]["clip_shared"] is True
+    assert client.get(f"/api/admin/false-alarms/{rid}/clip", headers=admin).content == video
+    assert client.delete(f"/api/sessions/{sid}/false-alarms/{rid}", headers=b).status_code == 404
+    assert client.delete(f"/api/sessions/{sid}/false-alarms/{rid}", headers=a).json()["deleted"] is True
+    assert client.get(f"/api/admin/false-alarms/{rid}/clip", headers=admin).status_code == 404
+    metadata_only = client.post(endpoint, headers=a, data={"category": "face_not_visible"})
+    assert metadata_only.status_code == 201
+    assert metadata_only.json()["clip_shared"] is False
+    assert client.get("/api/false-alarms/mine", headers=b).json() == []
+    assert client.get("/api/false-alarms/mine", headers=a).json()[0]["clip_shared"] is False

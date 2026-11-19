@@ -1,5 +1,7 @@
 # UI Requirements and Screen Specification
 
+**Current implementation update (2026-11-18):** The Phase 1 demo requirements below are historical acceptance criteria. The current interface opens directly at sign-in, uses account data on Dashboard, Session, Analytics, and Settings, and labels Coach, Goals, and Achievements as previews. Timed sessions require an explicit camera start and show a live, server-backed timer. Provisional camera events pause it and offer false-alarm feedback with optional, explicitly shared short video. The camera permission click remains explicit.
+
 ## 1. Global application shell
 
 ### Desktop layout

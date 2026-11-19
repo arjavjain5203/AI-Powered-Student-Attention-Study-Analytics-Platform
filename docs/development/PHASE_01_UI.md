@@ -2,7 +2,7 @@
 
 ## Objective and status
 
-Deliver a complete student-facing presentation. The owner regards this phase as completed. Source inspection confirms the seven screens and a successful Vite production build on 2026-11-18. Browser interaction, console, and width-specific visual QA remain unverified, so this is owner-completed with that evidence limit.
+Deliver a complete student-facing presentation. The owner regards this phase as completed. Source inspection confirms the seven screens. The Vite build and a headless Chrome browser smoke test pass. Screenshots at 375, 768, and 1440 CSS pixels were inspected; a clipped mobile chart axis was corrected. The demo requests no camera access.
 
 ## Scope and features
 
@@ -21,15 +21,15 @@ Install from root `package.json`; run `npm run dev` and `npm run build`. No Phas
 
 ## Testing and acceptance
 
-Build passes. Completion additionally requires browser checks for all routes and primary actions, keyboard focus, no horizontal overflow, readable Recharts, and no console errors. Verify that no camera permission prompt appears. A no-history analytics view is present.
+Build and browser smoke test pass. The test navigates all routes, exercises keyboard navigation and focus outline, checks no horizontal overflow at three widths, inspects console errors, and confirms no camera request in demo mode. A no-history analytics view is present. A physical-device visual review can still find issues that headless screenshots miss.
 
 ## Risks and checklist
 
 - [x] Seven presentation screens and reusable shell exist.
 - [x] Shared mock values and simulation/privacy labels exist.
 - [x] Production build passes.
-- [ ] Browser interaction and responsive visual QA recorded.
-- [ ] Console and overflow inspection recorded.
+- [x] Browser interaction and responsive visual QA recorded in `tests/browser-smoke.mjs` and ignored `.local/browser-qa/` screenshots.
+- [x] Console and overflow inspection recorded.
 
 Dependency on previous phases: none. Large bundle size is a known optimization risk, not a failed build.
 

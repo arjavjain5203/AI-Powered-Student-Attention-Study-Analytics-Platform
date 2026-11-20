@@ -19,6 +19,7 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 from dotenv import load_dotenv
 
 from app.services.analytics import summarize
+from app.services.patterns import summarize_patterns
 from app.services.engagement import score_digital
 from app.services.planner import recommend_plan, break_check
 from app.services.visual import ALGORITHM_VERSION, candidate_visual_event, summarize_visual_window
@@ -31,8 +32,13 @@ app = FastAPI(title="Student Study Analytics API", version="0.1.0")
 async def database_unavailable(_request: Request, _error: PyMongoError):
     return JSONResponse(status_code=503, content={"detail": "Database unavailable"})
 
+dev_vite_origin_regex = (
+    r"^http://(?:localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}):5173$"
+    if os.getenv("APP_ENV") == "development" else None
+)
 app.add_middleware(CORSMiddleware, allow_origins=[x.strip() for x in os.getenv(
     "CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if x.strip()],
+    allow_origin_regex=dev_vite_origin_regex,
     allow_credentials=False, allow_methods=["GET", "POST", "PATCH", "DELETE"], allow_headers=["Authorization", "Content-Type"])
 bearer = HTTPBearer()
 
@@ -62,6 +68,7 @@ def get_db():
     db.attention_records.create_index([("user_id", ASCENDING), ("session_id", ASCENDING), ("captured_at", ASCENDING)])
     db.distractions.create_index([("user_id", ASCENDING), ("session_id", ASCENDING), ("occurred_at", ASCENDING)])
     db.visual_records.create_index([("user_id", ASCENDING), ("session_id", ASCENDING), ("captured_at", ASCENDING)])
+    db.visual_records.create_index([("user_id", ASCENDING), ("captured_at", ASCENDING)])
     db.visual_records.create_index("expires_at", expireAfterSeconds=0)
     db.visual_events.create_index([("user_id", ASCENDING), ("session_id", ASCENDING), ("occurred_at", ASCENDING)])
     db.visual_events.create_index("expires_at", expireAfterSeconds=0)
@@ -102,17 +109,26 @@ def owned_session(db, user, session_id):
     return reconcile_camera_session(db, session)
 
 
+def closed_interval(session, end):
+    start = session.get("active_since")
+    return {"started_at": start, "ended_at": end} if start and end > start else None
+
+
 def reconcile_camera_session(db, session):
     expiry = session.get("visual_consent_expires_at")
     if (session.get("camera_required") and session["status"] == "active" and
             (not expiry or expiry <= utcnow())):
         stop_at = min(expiry or utcnow(), utcnow())
         elapsed = max(0, int((stop_at - session["active_since"]).total_seconds()))
-        db.sessions.update_one({"_id": session["_id"], "status": "active",
-                                "visual_consent_expires_at": expiry}, {"$set": {
+        update = {"$set": {
             "status": "paused", "active_since": None,
             "active_seconds": session.get("active_seconds", 0) + elapsed,
-            "visual_consent_active": False, "visual_consent_expires_at": None}})
+            "visual_consent_active": False, "visual_consent_expires_at": None}}
+        interval = closed_interval(session, stop_at)
+        if interval:
+            update["$push"] = {"active_intervals": interval}
+        db.sessions.update_one({"_id": session["_id"], "status": "active",
+                                "visual_consent_expires_at": expiry}, update)
         session = db.sessions.find_one({"_id": session["_id"]})
     return session
 
@@ -200,6 +216,12 @@ class VisualWindow(BaseModel):
         return self
 
 
+class VisualWarningCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    category: str = Field(pattern="^(face_not_visible|head_not_forward|phone_visible)$")
+    algorithm_version: str = Field(pattern="^(face-presence-head-orientation-v1|mediapipe-efficientdet-lite0-v1)$")
+
+
 def public_user(user):
     return {"id": str(user["_id"]), "name": user["name"], "email": user["email"],
             "daily_goal_minutes": user.get("daily_goal_minutes", 240),
@@ -273,7 +295,8 @@ def start_session(body: SessionCreate, user=Depends(current_user), db=Depends(ge
     doc = {"user_id": str(user["_id"]), "subject": body.subject.strip(), "topic": body.topic,
            "goal_minutes": body.goal_minutes, "camera_required": body.camera_required,
            "status": "awaiting_camera" if body.camera_required else "active", "started_at": now,
-           "active_since": None if body.camera_required else now, "active_seconds": 0, "ended_at": None}
+           "active_since": None if body.camera_required else now, "active_seconds": 0,
+           "active_intervals": [], "ended_at": None}
     try:
         doc["_id"] = db.sessions.insert_one(doc).inserted_id
     except DuplicateKeyError:
@@ -313,9 +336,14 @@ def change_session(session_id: str, action: str, user=Depends(current_user), db=
     else:
         updates.update(status="ended", active_since=None, ended_at=now, visual_consent_active=False,
                        visual_consent_expires_at=None)
+    update = {"$set": updates}
+    if session["status"] == "active":
+        interval = closed_interval(session, now)
+        if interval:
+            update["$push"] = {"active_intervals": interval}
     result = db.sessions.find_one_and_update(
         {"_id": session["_id"], "user_id": str(user["_id"]), "status": session["status"]},
-        {"$set": updates}, return_document=True)
+        update, return_document=True)
     if not result:
         raise HTTPException(409, "Session changed; retry")
     return session_out(result)
@@ -383,10 +411,15 @@ def revoke_visual_consent(session_id: str, user=Depends(current_user), db=Depend
     session = owned_session(db, user, session_id)
     now = utcnow()
     changes = {"visual_consent_active": False, "visual_consent_expires_at": None, "visual_revoked_at": now}
+    update = {"$set": changes}
     if session.get("camera_required") and session["status"] == "active":
         changes.update(status="paused", active_since=None,
                        active_seconds=session.get("active_seconds", 0) + max(0, int((now - session["active_since"]).total_seconds())))
-    db.sessions.update_one({"_id": session["_id"], "user_id": str(user["_id"])}, {"$set": changes})
+        interval = closed_interval(session, now)
+        if interval:
+            update["$push"] = {"active_intervals": interval}
+    db.sessions.update_one({"_id": session["_id"], "user_id": str(user["_id"]),
+                            "status": session["status"]}, update)
     return {"active": False}
 
 
@@ -409,21 +442,48 @@ def add_visual_record(session_id: str, body: VisualWindow, user=Depends(current_
            "expires_at": now + timedelta(days=90), "event_candidate": candidate,
            **body.model_dump(), **scored}
     db.visual_records.insert_one(doc)
-    event = None
-    if candidate and last and last.get("event_candidate") == candidate and (now - last["captured_at"]).total_seconds() <= 30:
-        previous_event = db.visual_events.find_one({"user_id": str(user["_id"]), "session_id": session_id,
-                                                    "category": candidate}, sort=[("occurred_at", -1)])
-        if not previous_event or (now - previous_event["occurred_at"]).total_seconds() >= 60:
-            event = {"user_id": str(user["_id"]), "session_id": session_id,
-                     "category": candidate, "occurred_at": now, "expires_at": now + timedelta(days=90),
-                     "source": "provisional_visual_heuristic", "minimum_observed_seconds": 20}
-            db.visual_events.insert_one(event)
     db.sessions.update_one({"_id": session["_id"], "user_id": str(user["_id"]),
                             "status": "active", "visual_consent_active": True},
                            {"$set": {"visual_consent_expires_at": now + timedelta(seconds=60)}})
     return {"captured_at": now.isoformat(), **scored, "algorithm_version": ALGORITHM_VERSION,
             "visual_attention_score": None,
-            "potential_visual_event": event["category"] if event else None}
+            "potential_visual_event": None}
+
+
+@app.post("/api/sessions/{session_id}/visual-events", status_code=201)
+def add_visual_warning(session_id: str, body: VisualWarningCreate,
+                       user=Depends(current_user), db=Depends(get_db)):
+    session = owned_session(db, user, session_id)
+    now = utcnow()
+    if (session["status"] != "active" or not session.get("camera_required") or
+            not session.get("visual_consent_active") or not session.get("visual_consent_expires_at") or
+            session["visual_consent_expires_at"] <= now):
+        raise HTTPException(409, "Active camera session and current consent required")
+    if body.category == "phone_visible" and body.algorithm_version != "mediapipe-efficientdet-lite0-v1":
+        raise HTTPException(422, "Phone warning requires the phone detector version")
+    if body.category != "phone_visible" and body.algorithm_version != ALGORITHM_VERSION:
+        raise HTTPException(422, "Face warning requires the face detector version")
+    event = {"user_id": str(user["_id"]), "session_id": session_id,
+             "category": body.category, "occurred_at": now, "expires_at": now + timedelta(days=90),
+             "source": "client_reported_provisional_camera", "algorithm_version": body.algorithm_version,
+             "minimum_observed_seconds": 0.5}
+    interval = closed_interval(session, now)
+    update = {"$set": {"status": "paused", "active_since": None, "visual_consent_active": False,
+                       "visual_consent_expires_at": None},
+              "$inc": {"active_seconds": max(0, int((now - session["active_since"]).total_seconds()))}}
+    if interval:
+        update["$push"] = {"active_intervals": interval}
+    result = db.sessions.find_one_and_update(
+        {"_id": session["_id"], "user_id": str(user["_id"]), "status": "active",
+         "visual_consent_active": True, "visual_consent_expires_at": {"$gt": now}},
+        update,
+        return_document=True)
+    if not result:
+        raise HTTPException(409, "Session changed; retry")
+    db.visual_events.insert_one(event)
+    return {"category": body.category, "occurred_at": now.isoformat(),
+            "source": event["source"], "minimum_observed_seconds": 0.5,
+            "session": session_out(result)}
 
 
 @app.get("/api/sessions/{session_id}/visual-records")
@@ -457,7 +517,7 @@ def visual_events(session_id: str, user=Depends(current_user), db=Depends(get_db
 async def report_false_alarm(session_id: str, category: str = Form(...), share_clip: bool = Form(False),
                              clip: UploadFile | None = File(None), user=Depends(current_user), db=Depends(get_db)):
     session = owned_session(db, user, session_id)
-    if category not in {"face_not_visible", "head_not_forward"}:
+    if category not in {"face_not_visible", "head_not_forward", "phone_visible"}:
         raise HTTPException(422, "Unknown camera alert")
     latest_event = db.visual_events.find_one({"user_id": str(user["_id"]), "session_id": session_id,
                                               "category": category}, sort=[("occurred_at", -1)])
@@ -549,6 +609,20 @@ def analytics(period: str = Query(default="daily", pattern="^(daily|weekly|month
             session["active_seconds"] = session.get("active_seconds", 0) + max(0, int((utcnow() - session["active_since"]).total_seconds()))
     return summarize(sessions, list(db.attention_records.find(query)),
                      list(db.distractions.find(query)), period, time_zone=user.get("time_zone", "UTC"))
+
+
+@app.get("/api/analytics/patterns")
+def study_patterns(user=Depends(current_user), db=Depends(get_db)):
+    now = utcnow()
+    query = {"user_id": str(user["_id"])}
+    sessions = [reconcile_camera_session(db, session) for session in
+                db.sessions.find(query).sort("started_at", -1).limit(1001)]
+    visual = list(db.visual_records.find({**query, "captured_at": {"$gte": now - timedelta(days=30)}})
+                  .sort("captured_at", 1).limit(10001))
+    truncated = len(sessions) > 1000 or len(visual) > 10000
+    return summarize_patterns(sessions[:1000], visual[:10000], now=now,
+                              time_zone=user.get("time_zone", "UTC"), truncated=truncated,
+                              sample_data=user.get("presentation_account", False))
 
 
 @app.get("/api/focus/plan")

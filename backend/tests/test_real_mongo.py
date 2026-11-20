@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
+from bson import ObjectId
 from pymongo import MongoClient
 
 from app.main import app, get_client, get_db
@@ -59,7 +60,13 @@ def test_real_mongo_api_roundtrip(monkeypatch):
             assert not set(stored).intersection({"frame", "image", "video", "landmarks", "raw_webcam"})
             assert http.delete(f"/api/sessions/{sid}/visual-records", headers=auth).json()["deleted_count"] == 1
             assert http.post(f"/api/sessions/{sid}/status/end", headers=auth).status_code == 200
+            stored_session = client[name].sessions.find_one({"_id": ObjectId(sid)})
+            assert len(stored_session["active_intervals"]) == 2
             assert http.get("/api/analytics?period=daily", headers=auth).json()["session_count"] == 1
+            patterns = http.get("/api/analytics/patterns", headers=auth)
+            assert patterns.status_code == 200
+            assert patterns.json()["baseline"]["status"] == "insufficient_history"
+            assert patterns.json()["visual_attention_score"] is None
             assert http.get("/api/focus/plan", headers=auth).json()["score_source"] == "digital_engagement"
             assert client[name].sessions.count_documents({}) == 1
     finally:

@@ -16,27 +16,37 @@ def test_visual_scoring_and_missing_quality():
     assert candidate_visual_event(20, 18, 17, "usable") is None
 
 
-def test_visual_events_need_two_windows_and_cooldown(client):
-    from datetime import datetime, timedelta, timezone
-    from app.main import get_db
+def test_prompt_visual_warning_pauses_session_and_preserves_ownership(client):
     a = register(client, "events@example.com")
     b = register(client, "events-other@example.com")
-    sid = client.post("/api/sessions", headers=a, json={"subject": "History"}).json()["id"]
+    sid = client.post("/api/sessions", headers=a, json={"subject": "History", "camera_required": True}).json()["id"]
     url = f"/api/sessions/{sid}"
-    client.post(f"{url}/visual-consent", headers=a)
-    payload = {"algorithm_version": "face-presence-head-orientation-v1", "total_samples": 20,
-               "valid_samples": 20, "face_samples": 0, "forward_samples": 0}
-    assert client.post(f"{url}/visual-records", headers=a, json=payload).json()["potential_visual_event"] is None
-    db = client.app.dependency_overrides[get_db]()
-    db.visual_records.update_many({"session_id": sid}, {"$set": {"captured_at": datetime.now(timezone.utc) - timedelta(seconds=10)}})
-    second = client.post(f"{url}/visual-records", headers=a, json=payload)
-    assert second.json()["potential_visual_event"] == "face_not_visible"
+    face = {"category": "face_not_visible", "algorithm_version": "face-presence-head-orientation-v1"}
+    phone = {"category": "phone_visible", "algorithm_version": "mediapipe-efficientdet-lite0-v1"}
+    assert client.post(f"{url}/visual-events", headers=a, json=face).status_code == 409
+    assert client.post(f"{url}/visual-consent", headers=a).status_code == 200
+    assert client.post(f"{url}/activate", headers=a).status_code == 200
+    assert client.post(f"{url}/visual-events", headers=b, json=face).status_code == 404
+    assert client.post(f"{url}/visual-events", headers=a, json={**face, "category": "phone_visible"}).status_code == 422
+    warning = client.post(f"{url}/visual-events", headers=a, json=face)
+    assert warning.status_code == 201, warning.text
+    assert warning.json()["session"]["status"] == "paused"
+    from bson import ObjectId
+    from app.main import get_db
+    stored = client.app.dependency_overrides[get_db]().sessions.find_one({"_id": ObjectId(sid)})
+    assert len(stored["active_intervals"]) == 1
+    assert client.get(url, headers=a).json()["status"] == "paused"
+    assert client.post(f"{url}/visual-events", headers=a, json=face).status_code == 409
     assert len(client.get(f"{url}/visual-events", headers=a).json()) == 1
     assert client.get(f"{url}/visual-events", headers=b).status_code == 404
-    db.visual_records.update_many({"session_id": sid}, {"$set": {"captured_at": datetime.now(timezone.utc) - timedelta(seconds=10)}})
-    assert client.post(f"{url}/visual-records", headers=a, json=payload).json()["potential_visual_event"] is None
-    assert len(client.get(f"{url}/visual-events", headers=a).json()) == 1
-    assert client.delete(f"{url}/visual-records", headers=a).json()["deleted_event_count"] == 1
+    assert client.post(f"{url}/visual-consent", headers=a).status_code == 200
+    assert client.post(f"{url}/status/resume", headers=a).status_code == 200
+    assert client.post(f"{url}/visual-events", headers=a, json=phone).status_code == 201
+    stored = client.app.dependency_overrides[get_db]().sessions.find_one({"_id": ObjectId(sid)})
+    assert len(stored["active_intervals"]) == 2
+    assert client.post(f"{url}/false-alarms", headers=a, data={"category": "phone_visible"}).status_code == 201
+    assert len(client.get(f"{url}/visual-events", headers=a).json()) == 2
+    assert client.delete(f"{url}/visual-records", headers=a).json()["deleted_event_count"] == 2
 
 
 def test_visual_consent_validation_ownership_expiry_and_deletion(client):

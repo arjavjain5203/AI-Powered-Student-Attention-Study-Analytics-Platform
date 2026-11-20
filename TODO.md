@@ -8,7 +8,7 @@
 | Phase 1 | Complete UI Development | Completed; headless Chrome QA passed |
 | Phase 2 | Backend and Data Layer | Local implementation and browser QA passed; deployment review remains Phase 5 |
 | Phase 3 | Browser-local Computer Vision | ACTIVE — implementation and synthetic-camera QA passed; physical-device and labeled validation pending |
-| Phase 4 | ML, Personalization, GenAI & Gamification | Upcoming |
+| Phase 4 | ML, Personalization, GenAI & Gamification | 4A–B provisional engineering implemented and tested; 4C–F upcoming |
 | Phase 5 | Integration, Testing & Deployment | Upcoming |
 
 ---
@@ -146,7 +146,7 @@ The backend must reliably support authentication, session management, validated 
 
 ## Phase 3 — Browser-Local Computer Vision and Attention Signals
 
-**Status: ACTIVE — implementation and synthetic-camera browser QA pass; physical-camera performance and signal validation pending.**
+**Status: ACTIVE — camera-first screen and prompt provisional warnings pass synthetic-camera QA; physical face/head/phone validation and performance checks remain pending.**
 
 See [Phase 3 Computer Vision Guide](docs/development/PHASE_03_COMPUTER_VISION.md).
 
@@ -154,6 +154,7 @@ See [Phase 3 Computer Vision Guide](docs/development/PHASE_03_COMPUTER_VISION.md
 
 - [x] Add explicit webcam opt-in.
 - [x] Add local webcam preview.
+- [x] Put the study clock over the main camera preview and keep it live while the session is active.
 - [x] Add camera start and stop controls.
 - [x] Integrate webcam controls with active recorded study sessions.
 - [x] Test camera permission granted with a synthetic Chrome camera.
@@ -206,9 +207,9 @@ See [Phase 3 Computer Vision Guide](docs/development/PHASE_03_COMPUTER_VISION.md
 - [x] Add 90-day expiry handling.
 - [x] Add visual-record deletion APIs.
 - [x] Add validation and corresponding tests.
-- [x] Assert the browser sends only five bounded count/version fields, with no raw frames.
+- [x] Assert 10-second window uploads contain only five bounded count/version fields; prompt warning uploads contain only category and algorithm version.
 - [x] Verify real MongoDB visual records contain no frame, image, video, or landmark fields.
-- [x] Inspect synthetic-camera network requests and confirm model assets load from the app origin.
+- [x] Inspect synthetic-camera network requests: the face model and WASM load from the app origin; the phone model downloads from Google's model host for local inference.
 - [x] Verify browser storage stays empty and app logs contain no camera payloads in the smoke test.
 - [x] Verify consent and its 60-second lease are required before visual-record ingestion.
 - [x] Verify another student cannot access visual records or events.
@@ -221,14 +222,17 @@ See [Phase 3 Computer Vision Guide](docs/development/PHASE_03_COMPUTER_VISION.md
 ### E. Distraction Detection
 
 - [x] Define **provisional camera-observed event** rules, explicitly separate from validated distractions.
-- [x] Detect face not visible over two usable windows as a provisional event.
+- [x] Detect a missing face across two processed observations as a prompt provisional warning.
+- [x] Detect a turned head across two processed observations as a prompt provisional warning.
+- [x] Add a browser-local visible-phone detector prototype and warn after two qualifying observations.
 - [ ] Evaluate looking-away events.
 - [ ] Evaluate prolonged downward head orientation.
-- [x] Require two windows within 30 seconds and a 60-second category cooldown.
-- [x] Test suppression of repeated provisional visual events.
+- [x] Atomically pause the owned camera session when a client-reported provisional warning is accepted.
+- [x] Prevent duplicate warnings while the session is paused.
 - [x] Pause the study timer on a provisional camera alert and show a false-alarm path; keep paused time excluded.
-- [x] Complete an architecture/license desk review for optional YOLO phone detection; exclude it from the current runtime.
-- [ ] Test false phone-detection events before enabling the feature.
+- [x] Keep YOLO excluded; use the existing MediaPipe runtime for the phone prototype.
+- [ ] Validate real-camera phone detections and false warnings before treating the prototype as reliable.
+- [ ] Resolve the EfficientDet model-weight redistribution terms before bundling it for offline/deployed use.
 
 ### F. Attention Engine Validation
 
@@ -258,29 +262,34 @@ The current visual-signal index is provisional. It must not automatically be tre
 
 ## Phase 4 — Personalization, ML, GenAI, and Gamification
 
-**Status: UPCOMING — dependent on reliable Phase 3 signals and sufficient historical study data.**
+**Status: A–B ENGINEERING IMPLEMENTED PROVISIONALLY; physical-signal validation and C–F remain upcoming.**
 
 See [Phase 4 AI Personalization Guide](docs/development/PHASE_04_AI_PERSONALIZATION.md).
 
 ### A. Personal Attention Baseline
 
-- [ ] Define the baseline calculation methodology.
-- [ ] Determine minimum valid historical samples.
-- [ ] Calculate individual attention baselines.
-- [ ] Compare current scores against personal history.
-- [ ] Track improvement and decline.
-- [ ] Handle new users with insufficient history.
-- [ ] Avoid misleading baseline comparisons when data is incomplete.
+- [x] Define the provisional visual-signal baseline calculation methodology and source/version labels.
+- [x] Require 30 eligible windows across three completed sessions and three local dates.
+- [x] Calculate individual **provisional visual-signal** baselines from owned 30-day history.
+- [x] Compare recent seven-day provisional signals against earlier non-overlapping history only when both groups qualify.
+- [x] Report descriptive higher/lower/similar changes with actual sample counts.
+- [x] Handle new users with explicit insufficient-history states.
+- [x] Avoid numeric baseline comparisons when data is incomplete or truncated.
+- [ ] Validate camera signals before calling any baseline a personal attention baseline.
 
 ### B. Study Pattern Detection
 
-- [ ] Analyze attention patterns by time of day.
-- [ ] Analyze study patterns by day of week.
-- [ ] Identify typical attention decline periods.
-- [ ] Analyze session-duration patterns.
-- [ ] Identify consistent high-focus study windows.
-- [ ] Analyze subject-wise study patterns where sufficient data exists.
-- [ ] Generate personal productivity insights.
+- [x] Track active study intervals across pauses, warnings, consent expiry, and session end.
+- [x] Analyze local time-of-day study totals and provisional camera-signal periods.
+- [x] Analyze active study time by local weekday, including sessions crossing midnight.
+- [x] Describe later-versus-earlier provisional signal changes when at least three sessions qualify.
+- [x] Analyze completed-session duration distributions and medians.
+- [x] Identify recurring **higher provisional signal** windows with sufficient observations.
+- [ ] Validate signals before calling those windows high-focus or attention-decline periods.
+- [x] Analyze subject totals and medians only where sufficient history exists.
+- [x] Generate deterministic, evidence-counted study-history insights.
+- [x] Display responsive recorded pattern charts and honest empty states.
+- [x] Seed labeled presentation-only sample patterns idempotently without changing test-account history.
 
 ### C. Personalized Focus Planner
 
@@ -415,8 +424,8 @@ Complete these tasks in order:
 ## Scope and Development Rules
 
 1. Phase 1 and Phase 2 implementations must not be unnecessarily rewritten.
-2. Phase 3 is the current active development phase.
-3. Phase 4 must wait for reliable signals and sufficient historical data.
+2. Phase 3 physical-signal validation is still active; do not mark it complete from synthetic tests.
+3. Phase 4A–B provisional engineering may run on recorded history, while validated attention claims wait for real testing.
 4. Phase 5 must follow integration of the major modules.
 5. Do not treat mock data as real measurements.
 6. Do not confuse digital engagement with visual attention.

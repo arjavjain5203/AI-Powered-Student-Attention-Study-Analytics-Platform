@@ -2,7 +2,7 @@
 
 ## Product and current state
 
-The platform is a privacy-first study companion. It records owned study sessions and browser-local derived visual signals. Timed sessions now require an explicit camera start; no video is uploaded by default. It cannot measure a student's mental state. Phase 1 and the local Phase 2 foundation pass automated browser and database checks. Phase 3 is ACTIVE: camera-gated timing, provisional event pause, explicit false-alarm feedback, and owned APIs are implemented; physical-camera and labeled-signal validation remain open.
+The platform is a privacy-first study companion. It records owned study sessions and browser-local derived visual signals. Timed sessions require an explicit camera start; no video is uploaded by default. It cannot measure a student's mental state. Phase 1 and the local Phase 2 foundation pass automated browser and database checks. Phase 3 engineering now includes prompt face/head/visible-phone warnings, but physical-camera and labeled-signal validation remain open. Phase 4A–B engineering adds a provisional personal visual-signal baseline and study pattern tracker; Phase 4C–F remain upcoming.
 
 ## Phase sequence and dependency
 

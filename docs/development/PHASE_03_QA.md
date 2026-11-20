@@ -1,4 +1,10 @@
-# Phase 3 local QA record — 2026-11-18
+# Phase 3 local QA record
+
+## Camera-first and prompt-warning update — 2026-11-19
+
+The Study Session screen now places the live clock over the main camera preview. An accepted provisional camera warning pauses the MongoDB-backed session immediately after two consecutive processed observations, and a warning banner appears on the preview. The browser initializes the face model and Google's downloadable EfficientDet-Lite0 phone model before starting time. The local Chrome synthetic-camera run passed at 375, 768, and 1440 CSS pixels without horizontal overflow or unexpected console errors. Its blank video exercised the `face_not_visible` path, not real phone or head recognition. It also verified the paused clock, explicitly consented false-alarm clip upload, admin retrieval, owner deletion, permission denial, 503/401 handling, and reload behavior. `backend/` tests: 17 passed, 1 optional real-Mongo test skipped; frontend tests: 3 passed; Vite build passed. Physical-camera phone/head accuracy and dual-model performance remain unverified. The earlier results below refer to the prior two-window alert implementation.
+
+The later development run added QA-only injected head and phone categories to exercise their full warning/API/timer paths, plus a blocked face-model check. These injections do not test actual recognition accuracy. The same run checked the recorded Analytics pattern tracker at 375, 768, and 1440 CSS pixels with no horizontal overflow. Phase 4A–B backend tests and the isolated presentation seed check are recorded in the [Phase 4 QA record](PHASE_04_QA.md).
 
 ## Recorded-first and false-alarm update
 

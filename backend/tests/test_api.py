@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from jose import jwt
 from pymongo.errors import ServerSelectionTimeoutError
+from bson import ObjectId
 
 from app.main import app, get_db
 
@@ -81,6 +82,18 @@ def test_database_failure_returns_503(client):
     assert response.json() == {"detail":"Database unavailable"}
 
 
+def test_development_lan_origin_can_preflight_login(client):
+    if os.getenv("APP_ENV") != "development":
+        pytest.skip("Development-only CORS rule")
+    headers = {"Origin": "http://192.168.1.34:5173", "Access-Control-Request-Method": "POST",
+               "Access-Control-Request-Headers": "content-type"}
+    allowed = client.options("/api/auth/login", headers=headers)
+    assert allowed.status_code == 200
+    assert allowed.headers["access-control-allow-origin"] == headers["Origin"]
+    rejected = client.options("/api/auth/login", headers={**headers, "Origin": "https://example.org"})
+    assert rejected.status_code == 400
+
+
 def test_session_time_counts_only_active_intervals(client, monkeypatch):
     headers = register(client, "timing@example.com")
     main_module = importlib.import_module("app.main")
@@ -105,6 +118,9 @@ def test_session_time_counts_only_active_intervals(client, monkeypatch):
     now[0] = started_at + timedelta(seconds=50)
     ended = client.post(f"/api/sessions/{sid}/status/end", headers=headers).json()
     assert ended["active_seconds"] == 20
+    stored = client.app.dependency_overrides[get_db]().sessions.find_one({"_id": ObjectId(sid)})
+    assert [round((part["started_at"] - started_at).total_seconds()) for part in stored["active_intervals"]] == [0, 42]
+    assert [round((part["ended_at"] - part["started_at"]).total_seconds()) for part in stored["active_intervals"]] == [12, 8]
     now[0] = started_at + timedelta(seconds=80)
     assert client.get(f"/api/sessions/{sid}", headers=headers).json()["active_seconds"] == 20
 
@@ -136,6 +152,9 @@ def test_camera_gated_session_and_expired_lease(client, monkeypatch):
     expired = client.get(f"/api/sessions/{sid}", headers=headers).json()
     assert expired["status"] == "paused"
     assert expired["active_seconds"] == 72  # 12 seconds + 60-second consent lease
+    stored = client.app.dependency_overrides[get_db]().sessions.find_one({"_id": ObjectId(sid)})
+    assert [round((part["ended_at"] - part["started_at"]).total_seconds())
+            for part in stored["active_intervals"]] == [12, 60]
 
 
 def test_false_alarm_clip_requires_consent_and_is_admin_only(client, monkeypatch):

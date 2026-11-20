@@ -71,10 +71,10 @@ const api = start('python', ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0
   JWT_SECRET: randomBytes(32).toString('hex'), REVIEW_ADMIN_TOKEN: reviewToken, CORS_ORIGINS: origin,
 })
 const vite = start(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(webPort)], root, {
-  ...process.env, VITE_API_BASE_URL: apiOrigin,
+  ...process.env, VITE_API_BASE_URL: apiOrigin, VITE_ENABLE_SYNTHETIC_SIGNALS: 'true',
 })
 let browser
-const report = { database, viewports: [], routes: [], visualPayload: null, fakeCamera: false, errors: [] }
+const report = { database, viewports: [], routes: [], fakeCamera: false, errors: [] }
 try {
   await ready(`${apiOrigin}/api/health/db`)
   await ready(origin)
@@ -104,6 +104,10 @@ try {
   const errors = monitor(page)
   const cameraAssetUrls = []
   page.on('request', request => { if (request.url().includes('/mediapipe/')) cameraAssetUrls.push(request.url()) })
+  let phoneModelLoaded = false
+  page.on('response', response => {
+    if (response.url().includes('/object_detector/efficientdet_lite0/') && response.ok()) phoneModelLoaded = true
+  })
   page.on('response', response => { if (response.status() >= 400) console.error('HTTP error:', response.status(), response.url()) })
   await page.goto(origin)
   await page.getByRole('heading', { name: 'Sign in' }).waitFor()
@@ -127,13 +131,45 @@ try {
     assert.ok(await page.locator('main h1').isVisible())
     report.routes.push(label)
   }
+  const passwordInput = page.getByLabel('Password', { exact: true })
+  await page.getByLabel('Email').fill('wrong-login@example.com')
+  await passwordInput.fill('wrong-password-123')
+  await page.getByRole('button', { name: 'Show password' }).click()
+  assert.equal(await passwordInput.getAttribute('type'), 'text')
+  await page.getByRole('button', { name: 'Hide password' }).click()
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByText('Invalid email or password').waitFor()
+  assert.equal(await passwordInput.inputValue(), 'wrong-password-123')
+  await page.getByRole('button', { name: 'Show password' }).click()
+  assert.equal(await passwordInput.getAttribute('type'), 'text')
+  assert.equal(await passwordInput.inputValue(), 'wrong-password-123')
+  report.passwordVisibilityAfterFailure = true
   await page.getByRole('button', { name: 'Create an account' }).click()
   await page.getByLabel('Name', { exact: true }).fill('Browser QA')
   const email = 'qa-' + randomBytes(4).toString('hex') + '@example.com'
   await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Password').fill('Browser-QA-password-123')
+  await page.getByLabel('Password', { exact: true }).fill('Browser-QA-password-123')
   await page.getByRole('button', { name: 'Register' }).click()
   await page.getByText('Browser QA · study workspace').waitFor()
+  await nav(page, 'Analytics')
+  await page.getByRole('heading', { name: 'Your 30-day study patterns' }).waitFor()
+  await page.getByText('No recorded sessions yet').waitFor()
+  await page.route(apiOrigin + '/api/analytics/patterns', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"Pattern service unavailable"}' }))
+  await page.getByLabel('Analytics period').selectOption('weekly')
+  await page.getByRole('heading', { name: 'Study patterns unavailable' }).waitFor()
+  await page.getByRole('heading', { name: 'Recorded analytics' }).waitFor()
+  await page.unroute(apiOrigin + '/api/analytics/patterns')
+  await page.getByRole('button', { name: 'Retry patterns' }).click()
+  await page.getByRole('heading', { name: 'Your 30-day study patterns' }).waitFor()
+  report.patternFailureRecovery = true
+  for (const width of [375, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.waitForTimeout(200)
+    await page.screenshot({ path: path.join(qa, 'patterns-' + width + '.png'), fullPage: true })
+    const dimensions = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth }))
+    assert.ok(dimensions.document <= dimensions.viewport + 1, 'Pattern tracker overflow at ' + width + ': ' + JSON.stringify(dimensions))
+    report.viewports.push({ mode: 'patterns', width, ...dimensions })
+  }
   await nav(page, 'Study session')
   await page.getByLabel('Subject').fill('Synthetic camera QA')
   await page.getByRole('button', { name: 'Create session' }).click()
@@ -142,10 +178,14 @@ try {
   assert.equal(await timer.innerText(), '00:00:00')
   await page.waitForTimeout(1200)
   assert.equal(await timer.innerText(), '00:00:00', 'Camera setup time must not count')
+  const warningPromise = page.waitForResponse(response => response.url().endsWith('/visual-events') && response.request().method() === 'POST', { timeout: 30000 })
   await page.getByRole('button', { name: 'Start camera and timer' }).click()
-  await page.getByRole('button', { name: 'Stop monitoring' }).waitFor({ timeout: 30000 })
-  await page.waitForFunction(() => document.querySelector('[role="timer"]')?.textContent !== '00:00:00', null, { timeout: 5000 })
+  const warning = await warningPromise
+  assert.deepEqual(Object.keys(warning.request().postDataJSON()).sort(), ['algorithm_version', 'category'])
+  assert.equal(phoneModelLoaded, true, 'Phone model must initialize before the study clock starts')
+  assert.ok(cameraAssetUrls.some(url => url.endsWith('/mediapipe/face_landmarker.task')))
   report.liveStudyTimer = true
+  report.phoneModelLoaded = true
   for (const width of [375, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 })
     await page.waitForTimeout(350)
@@ -154,14 +194,9 @@ try {
     assert.ok(dimensions.document <= dimensions.viewport + 1, 'Session overflow at ' + width)
     report.viewports.push({ mode: 'session', width, ...dimensions })
   }
-  const first = await page.waitForResponse(response => response.url().endsWith('/visual-records') && response.request().method() === 'POST', { timeout: 25000 })
-  assert.equal(first.status(), 201, await first.text())
-  const payload = first.request().postDataJSON()
-  assert.deepEqual(Object.keys(payload).sort(), ['algorithm_version', 'face_samples', 'forward_samples', 'total_samples', 'valid_samples'])
-  report.visualPayload = payload
+  assert.equal(warning.status(), 201, await warning.text())
+  assert.equal((await warning.json()).category, 'face_not_visible')
   report.fakeCamera = true
-  const second = await page.waitForResponse(response => response.url().endsWith('/visual-records') && response.request().method() === 'POST', { timeout: 20000 })
-  assert.equal((await second.json()).potential_visual_event, 'face_not_visible')
   await page.getByRole('heading', { name: 'Camera alert: study timer paused' }).waitFor()
   const pausedTime = await timer.innerText()
   await page.waitForTimeout(1200)
@@ -192,15 +227,10 @@ try {
   assert.equal((await fetch(apiOrigin + '/api/admin/false-alarms/' + reports[0].id + '/clip', { headers: { 'X-Review-Token': reviewToken } })).status, 404)
   report.studentClipDeletion = true
   await nav(page, 'Study session')
-  await page.getByRole('button', { name: 'Start camera and timer' }).click()
-  await page.getByRole('button', { name: 'Pause', exact: true }).waitFor()
-  const beforeResume = await timer.innerText()
-  await page.waitForFunction(previous => document.querySelector('[role="timer"]')?.textContent !== previous, beforeResume, { timeout: 5000 })
-  await page.getByRole('button', { name: 'Pause', exact: true }).click()
   const manualPauseTime = await timer.innerText()
   await page.waitForTimeout(1200)
   assert.equal(await timer.innerText(), manualPauseTime)
-  report.manualPause = true
+  report.warningPause = true
   await page.evaluate(() => {
     window.__allowedGetUserMedia = navigator.mediaDevices.getUserMedia
     navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Denied for browser QA', 'NotAllowedError') }
@@ -211,15 +241,48 @@ try {
   await page.evaluate(() => { navigator.mediaDevices.getUserMedia = window.__allowedGetUserMedia })
   report.permissionDenied = true
   await page.getByRole('button', { name: 'End session' }).click()
-  await page.getByText('Open study block · ended').waitFor()
+  await nav(page, 'Overview')
+  await page.getByText('Open study block · ended').first().waitFor()
+  for (const category of ['head_not_forward', 'phone_visible']) {
+    await nav(page, 'Study session')
+    await page.getByLabel('Subject').fill(`Synthetic ${category}`)
+    await page.getByLabel('Topic').fill(category)
+    await page.getByRole('button', { name: 'Create session' }).click()
+    await page.evaluate(value => { window.__focusAtlasQaCategory = value }, category)
+    const eventPromise = page.waitForResponse(response => response.url().endsWith('/visual-events') && response.request().method() === 'POST', { timeout: 30000 })
+    await page.getByRole('button', { name: 'Start camera and timer' }).click()
+    const event = await eventPromise
+    assert.equal(event.status(), 201)
+    assert.equal((await event.json()).category, category)
+    await page.getByText(`Camera warning: ${category.replaceAll('_', ' ')} · timer paused`).waitFor()
+    const stoppedAt = await page.getByRole('timer', { name: 'Active study session time' }).innerText()
+    await page.waitForTimeout(1100)
+    assert.equal(await page.getByRole('timer', { name: 'Active study session time' }).innerText(), stoppedAt)
+    await page.getByRole('button', { name: 'Review complete' }).click()
+    await page.getByRole('button', { name: 'End session' }).click()
+    await page.evaluate(() => { window.__focusAtlasQaCategory = null })
+    await nav(page, 'Overview')
+  }
+  report.syntheticWarningCategories = ['face_not_visible', 'head_not_forward', 'phone_visible']
+  await nav(page, 'Study session')
+  await page.getByLabel('Subject').fill('Blocked model QA')
+  await page.getByRole('button', { name: 'Create session' }).click()
+  await page.route('**/mediapipe/face_landmarker.task', route => route.abort())
+  await page.getByRole('button', { name: 'Start camera and timer' }).click()
+  await page.getByText(/Camera unavailable:/).waitFor({ timeout: 15000 })
+  assert.equal(await page.getByRole('timer', { name: 'Active study session time' }).innerText(), '00:00:00')
+  await page.unroute('**/mediapipe/face_landmarker.task')
+  await page.getByRole('button', { name: 'End session' }).click()
+  await nav(page, 'Overview')
+  report.modelLoadFailure = true
   await page.reload()
   await page.getByRole('heading', { name: 'Sign in' }).waitFor()
   assert.equal(await page.evaluate(() => window.__cameraCalls), 0)
   await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Password').fill('Browser-QA-password-123')
+  await page.getByLabel('Password', { exact: true }).fill('Browser-QA-password-123')
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-  await nav(page, 'Study session')
-  await page.getByText('Open study block · ended').waitFor()
+  await nav(page, 'Overview')
+  await page.getByText('Open study block · ended').first().waitFor()
   report.reload = true
   await page.route(apiOrigin + '/api/profile', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"Database unavailable"}' }))
   await page.getByRole('button', { name: /Refresh/ }).click()
@@ -233,7 +296,10 @@ try {
   await page.getByRole('heading', { name: 'Sign in' }).waitFor()
   await page.getByText('Your sign-in expired. Please sign in again.').waitFor()
   await page.unroute(apiOrigin + '/api/profile')
-  report.errors = errors.filter(message => !['401 (Unauthorized)', '503 (Service Unavailable)'].some(expected => message.includes(expected)))
+  assert.ok(errors.filter(message => message.includes('net::ERR_FAILED')).length <= 1,
+    'Only the deliberately blocked model request may fail')
+  report.errors = errors.filter(message => !['401 (Unauthorized)', '503 (Service Unavailable)',
+    'Failed to load resource: net::ERR_FAILED'].some(expected => message.includes(expected)))
   assert.deepEqual(report.errors, [])
   console.log(JSON.stringify(report, null, 2))
   await context.close()

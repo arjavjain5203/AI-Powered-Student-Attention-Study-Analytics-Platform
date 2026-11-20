@@ -29,3 +29,15 @@ export function addSample(window, landmarks, processed = true) {
   }
   return window
 }
+
+export function visiblePhone(detections) {
+  return detections?.some(item => item.categories?.some(category =>
+    category.categoryName === 'cell phone' && category.score >= 0.35)) || false
+}
+
+export function cameraWarning(landmarks, detections) {
+  if (visiblePhone(detections)) return 'phone_visible'
+  if (!landmarks?.length) return 'face_not_visible'
+  if (forwardOrientation(landmarks) === false) return 'head_not_forward'
+  return null
+}

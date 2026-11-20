@@ -1,5 +1,6 @@
-"""Idempotently seed four LOCAL presentation logins; never target a hosted database."""
+"""Refresh LOCAL presentation examples; never target a hosted database."""
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -9,6 +10,8 @@ from pymongo import MongoClient
 from pymongo.uri_parser import parse_uri
 
 backend = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(backend))
+from app.services.visual import ALGORITHM_VERSION, summarize_visual_window
 load_dotenv(backend / ".env")
 uri = os.getenv("MONGO_URI", "")
 if not uri.startswith("mongodb://") or not all(host in {"127.0.0.1", "localhost"} for host, _port in parse_uri(uri)["nodelist"]):
@@ -63,14 +66,33 @@ for email, name, goal, preferred, history in students:
         user_id = user["_id"]
         db.users.update_one({"_id": user_id}, {"$set": {"password_hash": password_hash,
                                                          "presentation_account": True}})
-    if not db.sessions.count_documents({"user_id": str(user_id), "presentation_seed": True}):
-        for subject, topic, minutes, days_ago in history:
-            started = now - timedelta(days=days_ago, minutes=minutes)
-            db.sessions.insert_one({"user_id": str(user_id), "subject": subject, "topic": topic,
-                                    "goal_minutes": max(25, minutes), "camera_required": False,
-                                    "status": "ended", "started_at": started, "active_since": None,
-                                    "active_seconds": minutes * 60, "ended_at": started + timedelta(minutes=minutes),
-                                    "presentation_seed": True})
+    # Rebuild only labeled examples so their rolling 30-day history remains useful.
+    # Real sessions and visual records for these accounts are left untouched.
+    db.visual_records.delete_many({"user_id": str(user_id), "presentation_seed": True})
+    db.sessions.delete_many({"user_id": str(user_id), "presentation_seed": True})
+    for subject, topic, minutes, days_ago in history:
+        started = now - timedelta(days=days_ago, minutes=minutes)
+        ended = started + timedelta(minutes=minutes)
+        sid = str(db.sessions.insert_one({
+            "user_id": str(user_id), "subject": subject, "topic": topic,
+            "goal_minutes": max(25, minutes), "camera_required": False,
+            "status": "ended", "started_at": started, "active_since": None,
+            "active_seconds": minutes * 60, "ended_at": ended,
+            "active_intervals": [{"started_at": started, "ended_at": ended}],
+            "presentation_seed": True,
+        }).inserted_id)
+        rows = []
+        for index in range(16):
+            # Synthetic examples for presentation accounts only; never a camera measurement.
+            captured = started + timedelta(minutes=5 if index < 8 else max(10, minutes - 6),
+                                                              seconds=(index % 8) * 10)
+            forward = max(8, 18 - (index // 8) * 2 - (index % 4))
+            score = summarize_visual_window(20, 20, 19, forward)
+            rows.append({"user_id": str(user_id), "session_id": sid, "captured_at": captured,
+                         "expires_at": captured + timedelta(days=90), "algorithm_version": ALGORITHM_VERSION,
+                         "total_samples": 20, "valid_samples": 20, "face_samples": 19,
+                         "forward_samples": forward, "presentation_seed": True, **score})
+        db.visual_records.insert_many(rows)
 
 print("Local presentation accounts ready: test@gmail.com, maya.student@example.com, arjun.student@example.com, zoya.student@example.com")
 print("Development-only password:", password)
